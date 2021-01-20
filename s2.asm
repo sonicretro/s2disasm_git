@@ -138,24 +138,26 @@ Header:
 	dc.b "SEGA GENESIS    " ; Console name
 	dc.b "(C)SEGA 1992.SEP" ; Copyright holder and release date (generally year)
 	dc.b "SONIC THE             HEDGEHOG 2                " ; Domestic name
-	dc.b "SONIC THE             HEDGEHOG 2                " ; International name
-    if gameRevision=0
-	dc.b "GM 00001051-00"   ; Version (REV00)
+	dc.b "SONIC THE             HEDGEHOG 2                "	; International name
+    
+	if gameRevision=0
+	dc.b "GM 00001051-00"	; Version (REV00)
     elseif gameRevision=1
-	dc.b "GM 00001051-01"   ; Version (REV01)
+	dc.b "GM 00001051-01"	; Version (REV01)
     elseif gameRevision=2
-	dc.b "GM 00001051-02"   ; Version (REV02)
+	dc.b "GM 00001051-02"	; Version (REV02)
     endif
+	
 ; word_18E
 Checksum:
 	dc.w $D951		; Checksum (patched later if incorrect)
 	dc.b "J               " ; I/O Support
-	dc.l StartOfRom		; Start address of ROM
+	dc.l StartOfRom	; Start address of ROM
 ; dword_1A4
 ROMEndLoc:
-	dc.l EndOfRom-1		; End address of ROM
-	dc.l RAM_Start&$FFFFFF		; Start address of RAM
-	dc.l (RAM_End-1)&$FFFFFF		; End address of RAM
+	dc.l EndOfRom-1	; End address of ROM
+	dc.l RAM_Start&$FFFFFF	; Start address of RAM
+	dc.l (RAM_End-1)&$FFFFFF	; End address of RAM
 	dc.b "    "		; Backup RAM ID
 	dc.l $20202020		; Backup RAM start address
 	dc.l $20202020		; Backup RAM end address
@@ -180,13 +182,13 @@ EntryPoint:
 	tst.w	(HW_Expansion_Control-1).l	; test port C control
 ; loc_214:
 PortA_Ok:
-	bne.s	PortC_OK ; Skip the VDP and Z80 setup code if port A, B or C is ok...?
+	bne.s	Init_SkipPowerOn ; Skip the VDP and Z80 setup code if port A, B or C is ok...?
 	lea	SetupValues(pc),a5	; Load setup values array address.
 	movem.w	(a5)+,d5-d7
 	movem.l	(a5)+,a0-a4
 	move.b	HW_Version-Z80_Bus_Request(a1),d0	; Get hardware version
 	andi.b	#$F,d0	; Compare
-	beq.s	SkipSecurity	; If the console has no TMSS, skip the security stuff.
+	beq.s	SkipSecurity	; If the console has no TMSS (older than Genesis III), skip the security stuff.
 	move.l	#'SEGA',Security_Addr-Z80_Bus_Request(a1) ; Satisfy the TMSS
 ; loc_234:
 SkipSecurity:
@@ -197,11 +199,11 @@ SkipSecurity:
 
 	moveq	#VDPInitValues_End-VDPInitValues-1,d1 ; run the following loop $18 times
 ; loc_23E:
-VDPInitLoop:
+Init_VDPRegs:
 	move.b	(a5)+,d5	; add $8000 to value
 	move.w	d5,(a4)	; move value to VDP register
 	add.w	d7,d5	; next register
-	dbf	d1,VDPInitLoop
+	dbf	d1,Init_VDPRegs	; set all 24 registers
 
 	move.l	(a5)+,(a4)	; set VRAM write mode
 	move.w	d0,(a3)	; clear the screen
@@ -223,25 +225,26 @@ Z80InitLoop:
 	move.w	d7,(a2)	; reset the Z80
 
 ; loc_262:
-ClrRAMLoop:
+ClearRAMLoop:
 	move.l	d0,-(a6)	; clear 4 bytes of RAM
-	dbf	d6,ClrRAMLoop	; repeat until the entire RAM is clear
+	dbf	d6,ClearRAMLoop	; repeat until the entire RAM is clear
 	move.l	(a5)+,(a4)	; set VDP display mode and increment mode
 	move.l	(a5)+,(a4)	; set VDP to CRAM write
 
 	moveq	#bytesToLcnt($80),d3	; set repeat times
 ; loc_26E:
-ClrCRAMLoop:
+ClearCRAMLoop:
 	move.l	d0,(a3)	; clear 2 palettes
-	dbf	d3,ClrCRAMLoop	; repeat until the entire CRAM is clear
+	dbf	d3,ClearCRAMLoop	; repeat until the entire CRAM is clear
 	move.l	(a5)+,(a4)	; set VDP to VSRAM write
 
 	moveq	#bytesToLcnt($50),d4	; set repeat times
 ; loc_278: ClrVDPStuff:
-ClrVSRAMLoop:
+ClearVSRAMLoop:
 	move.l	d0,(a3)	; clear 4 bytes of VSRAM.
-	dbf	d4,ClrVSRAMLoop	; repeat until the entire VSRAM is clear
-	moveq	#PSGInitValues_End-PSGInitValues-1,d5	; set repeat times.
+	dbf	d4,ClearVSRAMLoop	; repeat until the entire VSRAM is clear
+	
+	moveq	#PSGInitValues_End-PSGInitValues-1,d5	; set repeat times
 ; loc_280:
 PSGInitLoop:
 	move.b	(a5)+,PSG_input-VDP_data_port(a3) ; reset the PSG
@@ -249,8 +252,8 @@ PSGInitLoop:
 	move.w	d0,(a2)
 	movem.l	(a6),d0-a6	; clear all registers
 	move	#$2700,sr	; set the sr
- ; loc_292:
-PortC_OK: ;;
+; loc_292:
+Init_SkipPowerOn:
 	bra.s	GameProgram	; Branch to game program.
 ; ===========================================================================
 ; byte_294:
@@ -297,31 +300,31 @@ Z80StartupCodeBegin: ; loc_2CA:
     save
     CPU Z80 ; start assembling Z80 code
     phase 0 ; pretend we're at address 0
-	xor	a	; clear a to 0
-	ld	bc,((Z80_RAM_End-Z80_RAM)-zStartupCodeEndLoc)-1 ; prepare to loop this many times
-	ld	de,zStartupCodeEndLoc+1	; initial destination address
-	ld	hl,zStartupCodeEndLoc	; initial source address
-	ld	sp,hl	; set the address the stack starts at
-	ld	(hl),a	; set first byte of the stack to 0
-	ldir		; loop to fill the stack (entire remaining available Z80 RAM) with 0
-	pop	ix	; clear ix
-	pop	iy	; clear iy
-	ld	i,a	; clear i
-	ld	r,a	; clear r
-	pop	de	; clear de
-	pop	hl	; clear hl
-	pop	af	; clear af
-	ex	af,af'	; swap af with af'
-	exx		; swap bc/de/hl with their shadow registers too
-	pop	bc	; clear bc
-	pop	de	; clear de
-	pop	hl	; clear hl
-	pop	af	; clear af
-	ld	sp,hl	; clear sp
-	di		; clear iff1 (for interrupt handler)
-	im	1	; interrupt handling mode = 1
-	ld	(hl),0E9h ; replace the first instruction with a jump to itself
-	jp	(hl)	  ; jump to the first instruction (to stay there forever)
+		xor	a	; clear a to 0
+		ld	bc,((Z80_RAM_End-Z80_RAM)-zStartupCodeEndLoc)-1 ; prepare to loop this many times
+		ld	de,zStartupCodeEndLoc+1	; initial destination address
+		ld	hl,zStartupCodeEndLoc	; initial source address
+		ld	sp,hl	; set the address the stack starts at
+		ld	(hl),a	; set first byte of the stack to 0
+		ldir		; loop to fill the stack (entire remaining available Z80 RAM) with 0
+		pop	ix	; clear ix
+		pop	iy	; clear iy
+		ld	i,a	; clear i
+		ld	r,a	; clear r
+		pop	de	; clear de
+		pop	hl	; clear hl
+		pop	af	; clear af
+		ex	af,af'	; swap af with af'
+		exx		; swap bc/de/hl with their shadow registers too
+		pop	bc	; clear bc
+		pop	de	; clear de
+		pop	hl	; clear hl
+		pop	af	; clear af
+		ld	sp,hl	; clear sp
+		di		; clear iff1 (for interrupt handler)
+		im	1	; interrupt handling mode = 1
+		ld	(hl),0E9h ; replace the first instruction with a jump to itself
+		jp	(hl)	  ; jump to the first instruction (to stay there forever)
 zStartupCodeEndLoc:
     dephase ; stop pretending
 	restore
@@ -465,7 +468,7 @@ V_Int:
 
 -	move.w	(VDP_control_port).l,d0
 	andi.w	#8,d0
-	beq.s	-
+	beq.s	-	; wait until vertical blanking is taking place
 
 	move.l	#vdpComm($0000,VSRAM,WRITE),(VDP_control_port).l
 	move.l	(Vscroll_Factor).w,(VDP_data_port).l ; send screen y-axis pos. to VSRAM
@@ -477,7 +480,7 @@ V_Int:
 +
 	move.b	(Vint_routine).w,d0
 	move.b	#VintID_Lag,(Vint_routine).w
-	move.w	#1,(Hint_flag).w
+	move.w	#1,(Hint_flag).w		; Allow H Interrupt code to run
 	andi.w	#$3E,d0
 	move.w	Vint_SwitchTbl(pc,d0.w),d0
 	jsr	Vint_SwitchTbl(pc,d0.w)
@@ -506,47 +509,48 @@ Vint_CtrlDMA_ptr:	offsetTableEntry.w Vint_CtrlDMA		; $1A
 ;VintSub0
 Vint_Lag:
 	cmpi.b	#GameModeID_TitleCard|GameModeID_Demo,(Game_Mode).w	; pre-level Demo Mode?
-	beq.s	loc_4C4
+	beq.s	VInt_Lag_Level
 	cmpi.b	#GameModeID_TitleCard|GameModeID_Level,(Game_Mode).w	; pre-level Zone play mode?
-	beq.s	loc_4C4
+	beq.s	VInt_Lag_Level
 	cmpi.b	#GameModeID_Demo,(Game_Mode).w	; Demo Mode?
-	beq.s	loc_4C4
+	beq.s	VInt_Lag_Level
 	cmpi.b	#GameModeID_Level,(Game_Mode).w	; Zone play mode?
-	beq.s	loc_4C4
+	beq.s	VInt_Lag_Level
 
 	stopZ80			; stop the Z80
 	bsr.w	sndDriverInput	; give input to the sound driver
 	startZ80		; start the Z80
 
-	bra.s	VintRet
+	bra.s	VintRet	; otherwise, return from V-int
 ; ---------------------------------------------------------------------------
 
-loc_4C4:
+VInt_Lag_Level:
 	tst.b	(Water_flag).w
 	beq.w	Vint0_noWater
 	move.w	(VDP_control_port).l,d0
 	btst	#6,(Graphics_Flags).w
-	beq.s	+
+	beq.s	+	; branch if it isn't a PAL system
 
 	move.w	#$700,d0
--	dbf	d0,- ; do nothing for a while...
+-	dbf	d0,-	; otherwise waste a bit of time here
+
 +
 	move.w	#1,(Hint_flag).w
 
 	stopZ80
 
 	tst.b	(Water_fullscreen_flag).w
-	bne.s	loc_526
+	bne.s	VInt_Level_FullyUnderwater
 
 	dma68kToVDP Normal_palette,$0000,palette_line_size*4,CRAM
 
-	bra.s	loc_54A
+	bra.s	VInt_Level_Water_Cont
 ; ---------------------------------------------------------------------------
 
-loc_526:
+VInt_Level_FullyUnderwater:
 	dma68kToVDP Underwater_palette,$0000,palette_line_size*4,CRAM
 
-loc_54A:
+VInt_Level_Water_Cont:
 	move.w	(Hint_counter_reserve).w,(a5)
 	move.w	#$8200|(VRAM_Plane_A_Name_Table/$400),(VDP_control_port).l	; Set scroll A PNT base to $C000
 	bsr.w	sndDriverInput
@@ -561,10 +565,11 @@ Vint0_noWater:
 	move.l	#vdpComm($0000,VSRAM,WRITE),(VDP_control_port).l
 	move.l	(Vscroll_Factor).w,(VDP_data_port).l
 	btst	#6,(Graphics_Flags).w
-	beq.s	+
+	beq.s	+	; branch if it isn't a PAL system
 
 	move.w	#$700,d0
--	dbf	d0,- ; do nothing for a while...
+-	dbf	d0,-	; otherwise, waste a bit of time here
+
 +
 	move.w	#1,(Hint_flag).w
 	move.w	(Hint_counter_reserve).w,(VDP_control_port).l
@@ -597,7 +602,7 @@ Vint_SEGA:
 Vint_PCM:
 	move.b	(Vint_runcount+3).w,d0
 	andi.w	#$F,d0
-	bne.s	+
+	bne.s	+	; run the following code once every 16 frames
 
 	stopZ80
 	bsr.w	ReadJoypads
@@ -627,14 +632,14 @@ Vint_Unused6:
 ;VintSub10
 Vint_Pause:
 	cmpi.b	#GameModeID_SpecialStage,(Game_Mode).w	; Special Stage?
-	beq.w	Vint_Pause_specialStage
+	beq.w	Vint_Pause_specialStage		; If yes, branch
 ;VintSub8
 Vint_Level:
 	stopZ80
 
 	bsr.w	ReadJoypads
 	tst.b	(Teleport_timer).w
-	beq.s	loc_6F8
+	beq.s	VInt_Level_NoFlash
 	lea	(VDP_control_port).l,a5
 	tst.w	(Game_paused).w	; is the game paused ?
 	bne.w	loc_748	; if yes, branch
@@ -643,7 +648,7 @@ Vint_Level:
 	move.b	#0,(Teleport_flag).w
 +
 	cmpi.b	#$10,(Teleport_timer).w
-	blo.s	loc_6F8
+	blo.s	VInt_Level_NoFlash
 	lea	(VDP_data_port).l,a6
 	move.l	#vdpComm($0000,CRAM,WRITE),(VDP_control_port).l
 	move.w	#$EEE,d0
@@ -661,17 +666,14 @@ Vint_Level:
 	bra.s	loc_748
 ; ---------------------------------------------------------------------------
 
-loc_6F8:
+;loc_6F8:
+VInt_Level_NoFlash:
 	tst.b	(Water_fullscreen_flag).w
-	bne.s	loc_724
+	bne.s	+
 	dma68kToVDP Normal_palette,$0000,palette_line_size*4,CRAM
 	bra.s	loc_748
-; ---------------------------------------------------------------------------
-
-loc_724:
-
++
 	dma68kToVDP Underwater_palette,$0000,palette_line_size*4,CRAM
-
 loc_748:
 	move.w	(Hint_counter_reserve).w,(a5)
 	move.w	#$8200|(VRAM_Plane_A_Name_Table/$400),(VDP_control_port).l	; Set scroll A PNT base to $C000
@@ -1030,16 +1032,13 @@ Do_ControllerPal:
 
 	bsr.w	ReadJoypads
 	tst.b	(Water_fullscreen_flag).w
-	bne.s	loc_EDA
+	bne.s	+
 
 	dma68kToVDP Normal_palette,$0000,palette_line_size*4,CRAM
-	bra.s	loc_EFE
-; ---------------------------------------------------------------------------
-
-loc_EDA:
+	bra.s	++
++
 	dma68kToVDP Underwater_palette,$0000,palette_line_size*4,CRAM
-
-loc_EFE:
++
 	dma68kToVDP Sprite_Table,VRAM_Sprite_Attribute_Table,VRAM_Sprite_Attribute_Table_Size,VRAM
 	dma68kToVDP Horiz_Scroll_Buf,VRAM_Horiz_Scroll_Table,VRAM_Horiz_Scroll_Table_Size,VRAM
 
@@ -1062,13 +1061,13 @@ H_Int:
 	move.l	a5,-(sp)
 	move.l	d0,-(sp)
 
--	move.w	(VDP_control_port).l,d0	; loop start: Make sure V_BLANK is over
-	andi.w	#4,d0
-	beq.s	-	; loop end
+-	move.w	(VDP_control_port).l,d0	; Make sure V_BLANK is over
+	andi.w	#4,d0	; is horizontal blanking occuring?
+	beq.s	-	; if not, wait until it is
 
 	move.w	(VDP_Reg1_val).w,d0
 	andi.b	#$BF,d0
-	move.w	d0,(VDP_control_port).l		; Display disable
+	move.w	d0,(VDP_control_port).l		; Display disable (blank the display)
 	move.w	#$8200|(VRAM_Plane_A_Name_Table_2P/$400),(VDP_control_port).l	; PNT A base: $A000
 	move.l	#vdpComm($0000,VSRAM,WRITE),(VDP_control_port).l
 	move.l	(Vscroll_Factor_P2_HInt).w,(VDP_data_port).l
@@ -1078,14 +1077,15 @@ H_Int:
 	startZ80
 
 -	move.w	(VDP_control_port).l,d0
-	andi.w	#4,d0
-	beq.s	-
+	andi.w	#4,d0	; is a horizontal blank occuring?
+	beq.s	-	; if not, wait
 
 	move.w	(VDP_Reg1_val).w,d0
 	ori.b	#$40,d0
 	move.w	d0,(VDP_control_port).l		; Display enable
 	move.l	(sp)+,d0
 	movea.l	(sp)+,a5
+	
 +
 	rte
 
@@ -1207,24 +1207,24 @@ ReadJoypads:
 
 ; sub_112A:
 Joypad_Read:
-	move.b	#0,(a1)
+	move.b	#0,(a1)			; Poll controller data port
 	nop
 	nop
-	move.b	(a1),d0
+	move.b	(a1),d0			; Get controller port data (start/A)
 	lsl.b	#2,d0
 	andi.b	#$C0,d0
-	move.b	#$40,(a1)
+	move.b	#$40,(a1)		; Poll controller data port again
 	nop
 	nop
-	move.b	(a1),d1
+	move.b	(a1),d1			; Get controller port data (B/C/Dpad)
 	andi.b	#$3F,d1
-	or.b	d1,d0
+	or.b	d1,d0			; Fuse together into one controller bit array
 	not.b	d0
-	move.b	(a0),d1
-	eor.b	d0,d1
-	move.b	d0,(a0)+
+	move.b	(a0),d1			; Get press button data
+	eor.b	d0,d1			; Toggle off buttons that are being held
+	move.b	d0,(a0)+		; Store raw controller input (for held buttons)
 	and.b	d0,d1
-	move.b	d1,(a0)+
+	move.b	d1,(a0)+		; Store pressed controller input
 	rts
 ; End of function Joypad_Read
 
@@ -1242,8 +1242,8 @@ VDP_Loop:
 	move.w	(a2)+,(a0)
 	dbf	d7,VDP_Loop	; set the VDP registers
 
-	move.w	(VDPSetupArray+2).l,d0
-	move.w	d0,(VDP_Reg1_val).w
+	move.w	(VDPSetupArray+2).l,d0	; get command for register #1
+	move.w	d0,(VDP_Reg1_val).w	; and store it in RAM (for easy display blanking/enabling)
 	move.w	#$8A00+223,(Hint_counter_reserve).w	; H-INT every 224th scanline
 	moveq	#0,d0
 
@@ -1279,7 +1279,7 @@ VDPSetupArray:
 	dc.w $8400|(VRAM_Plane_B_Name_Table/$2000)	; PNT B base: $E000
 	dc.w $8500|(VRAM_Sprite_Attribute_Table/$200)	; Sprite attribute table base: $F800
 	dc.w $8600
-	dc.w $8700		; Background palette/color: 0/0
+	dc.w $8700		; Backdrop color is color 0 of the first palette line
 	dc.w $8800
 	dc.w $8900
 	dc.w $8A00		; H-INT every scanline
@@ -1508,12 +1508,14 @@ PlaneMapToVRAM_H40:
 PlaneMapToVRAM_H80_SpecialStage:
 	lea	(VDP_data_port).l,a6
 	move.l	#vdpCommDelta(planeLocH80(0,1)),d4	; $1000000
+	
 -	move.l	d0,VDP_control_port-VDP_data_port(a6)
 	move.w	d1,d3
+	
 -	move.w	(a1)+,(a6)
-	dbf	d3,-
-	add.l	d4,d0
-	dbf	d2,--
+	dbf	d3,-	; copy one row
+	add.l	d4,d0	; move onto next row
+	dbf	d2,--	; and copy it
 	rts
 ; End of function PlaneMapToVRAM_H80_SpecialStage
 
@@ -1531,7 +1533,7 @@ PlaneMapToVRAM_H80_SpecialStage:
 QueueDMATransfer:
 	movea.l	(VDP_Command_Buffer_Slot).w,a1
 	cmpa.w	#VDP_Command_Buffer_Slot,a1
-	beq.s	QueueDMATransfer_Done ; return if there's no more room in the buffer
+	beq.s	.return ; return if there's no more room in the buffer
 
 	; piece together some VDP commands and store them for later...
 	move.w	#$9300,d0 ; command to specify DMA transfer length & $00FF
@@ -1567,11 +1569,11 @@ QueueDMATransfer:
 	move.l	d2,(a1)+ ; store command
 
 	move.l	a1,(VDP_Command_Buffer_Slot).w ; set the next free slot address
-	cmpa.w	#VDP_Command_Buffer_Slot,a1
-	beq.s	QueueDMATransfer_Done ; return if there's no more room in the buffer
+	cmpa.w	#VDP_Command_Buffer_Slot,a1	; has the end of the queue been reached?
+	beq.s	.return ; if it has, return
 	move.w	#0,(a1) ; put a stop token at the end of the used part of the buffer
 ; return_14AA:
-QueueDMATransfer_Done:
+.return:
 	rts
 ; End of function QueueDMATransfer
 
@@ -1589,9 +1591,10 @@ ProcessDMAQueue:
 	lea	(VDP_control_port).l,a5
 	lea	(VDP_Command_Buffer).w,a1
 ; loc_14B6:
-ProcessDMAQueue_Loop:
-	move.w	(a1)+,d0
-	beq.s	ProcessDMAQueue_Done ; branch if we reached a stop token
+.loop:
+	move.w	(a1)+,d0	; has a stop token been encountered?
+	beq.s	.done	; if it has, branch
+	
 	; issue a set of VDP commands...
 	move.w	d0,(a5)		; transfer length
 	move.w	(a1)+,(a5)	; transfer length
@@ -1600,10 +1603,10 @@ ProcessDMAQueue_Loop:
 	move.w	(a1)+,(a5)	; source address
 	move.w	(a1)+,(a5)	; destination
 	move.w	(a1)+,(a5)	; destination
-	cmpa.w	#VDP_Command_Buffer_Slot,a1
-	bne.s	ProcessDMAQueue_Loop ; loop if we haven't reached the end of the buffer
+	cmpa.w	#VDP_Command_Buffer_Slot,a1	; has the end of the queue been reached?
+	bne.s	.loop	; if not, loop
 ; loc_14CE:
-ProcessDMAQueue_Done:
+.done:
 	move.w	#0,(VDP_Command_Buffer).w
 	move.l	#VDP_Command_Buffer,(VDP_Command_Buffer_Slot).w
 	rts
@@ -1613,8 +1616,13 @@ ProcessDMAQueue_Done:
 
 ; ---------------------------------------------------------------------------
 ; START OF NEMESIS DECOMPRESSOR
+; Nemesis decompression	subroutine, decompresses art directly to VRAM
+; Inputs:
+; a0 = art address
+; a VDP command to write to the destination VRAM address must be issued
+; before calling this routine
 
-; For format explanation see http://info.sonicretro.org/Nemesis_compression
+; For format description see http://info.sonicretro.org/Nemesis_compression
 ; ---------------------------------------------------------------------------
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
@@ -1623,200 +1631,227 @@ ProcessDMAQueue_Done:
 ; sub_14DE: NemDecA:
 NemDec:
 	movem.l	d0-a1/a3-a5,-(sp)
-	lea	(NemDec_WriteAndStay).l,a3 ; write all data to the same location
+	lea	(NemDecMain.writeRowToVDP).l,a3 ; write all data to the same location
 	lea	(VDP_data_port).l,a4	   ; specifically, to the VDP data port
 	bra.s	NemDecMain
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
-; Nemesis decompression to RAM
-; input: a4 = starting address of destination
+; ---------------------------------------------------------------------------
+; Nemesis decompression subroutine, decompresses art to RAM
+; Inputs:
+; a0 = art address
+; a4 = destination RAM address
+; ---------------------------------------------------------------------------
+
 ; sub_14F0: NemDecB:
 NemDecToRAM:
 	movem.l	d0-a1/a3-a5,-(sp)
-	lea	(NemDec_WriteAndAdvance).l,a3 ; advance to the next location after each write
+	lea	(NemDecMain.writeRowToRAM).l,a3 ; advance to the next location after each write
 
-
+; ---------------------------------------------------------------------------
+; Main Nemesis decompression subroutine
+; ---------------------------------------------------------------------------
+	
 ; sub_14FA:
 NemDecMain:
 	lea	(Decomp_Buffer).w,a1
-	move.w	(a0)+,d2
+	move.w	(a0)+,d2	; get number of patterns
 	lsl.w	#1,d2
-	bcc.s	+
-	adda.w	#NemDec_WriteAndStay_XOR-NemDec_WriteAndStay,a3
-+	lsl.w	#2,d2
-	movea.w	d2,a5
-	moveq	#8,d3
+	bcc.s	.noXORMode	; branch if the sign bit isn't set
+	adda.w	#.writeRowToVDP_XOR-.writeRowToVDP,a3	; otherwise the file uses XOR mode
+	
+.noXORMode:
+	lsl.w	#2,d2	; get number of 8-pixel rows in the uncompressed data
+	movea.w	d2,a5	; and store it in a5 because there aren't any spare data registers
+	moveq	#8,d3	; 8 pixels in a pattern row
 	moveq	#0,d2
 	moveq	#0,d4
-	bsr.w	NemDecPrepare
-	move.b	(a0)+,d5
-	asl.w	#8,d5
-	move.b	(a0)+,d5
-	move.w	#$10,d6
-	bsr.s	NemDecRun
+	bsr.w	NemDec_BuildCodeTable
+	move.b	(a0)+,d5	; get first byte of compressed data
+	asl.w	#8,d5	; shift up by a byte
+	move.b	(a0)+,d5	; get second byte of compressed data
+	move.w	#$10,d6	; set initial shift value
+	bsr.s	.processCompressedData
 	movem.l	(sp)+,d0-a1/a3-a5
 	rts
 ; End of function NemDec
 
+; ---------------------------------------------------------------------------
+; Part of the Nemesis decompressor, processes the actual compressed data
+; ---------------------------------------------------------------------------
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
 ; part of the Nemesis decompressor
 ; sub_1528:
-NemDecRun:
+.processCompressedData:
 	move.w	d6,d7
-	subq.w	#8,d7
+	subq.w	#8,d7	; get shift value
 	move.w	d5,d1
-	lsr.w	d7,d1
-	cmpi.b	#-4,d1
-	bhs.s	loc_1574
+	lsr.w	d7,d1	; shift so that high bit of the code is in bit position 7
+	cmpi.b	#%11111100,d1	; are the high 6 bits set?
+	bhs.s	.inlineData	; if they are, it signifies inline data
 	andi.w	#$FF,d1
 	add.w	d1,d1
-	move.b	(a1,d1.w),d0
+	move.b	(a1,d1.w),d0	; get the length of the code in bits
 	ext.w	d0
-	sub.w	d0,d6
-	cmpi.w	#9,d6
-	bhs.s	+
+	sub.w	d0,d6	; subtract from shift value so that the next code is read next time around
+	cmpi.w	#9,d6	; does a new byte need to be read?
+	bhs.s	.needNewByte	; if not, branch
 	addq.w	#8,d6
 	asl.w	#8,d5
-	move.b	(a0)+,d5
-+	move.b	1(a1,d1.w),d1
+	move.b	(a0)+,d5	; read next byte
+	
+.needNewByte:
+	move.b	1(a1,d1.w),d1
 	move.w	d1,d0
-	andi.w	#$F,d1
+	andi.w	#$F,d1	; get palette index for pixel
 	andi.w	#$F0,d0
 
-loc_155E:
+.getRepeatCount:
 	lsr.w	#4,d0
 
-loc_1560:
-	lsl.l	#4,d4
-	or.b	d1,d4
-	subq.w	#1,d3
-	bne.s	NemDec_WriteIter_Part2
-	jmp	(a3) ; dynamic jump! to NemDec_WriteAndStay, NemDec_WriteAndAdvance, NemDec_WriteAndStay_XOR, or NemDec_WriteAndAdvance_XOR
+.writePixel:
+	lsl.l	#4,d4	; shift up by a nybble
+	or.b	d1,d4	; write pixel
+	subq.w	#1,d3	; has an entire 8-pixel row been written?
+	bne.s	.writePixel_Loop	; if not, loop
+	jmp	(a3)	; otherwise, write the row to its destination, by doing a dynamic jump to .writeRowToVDP, NemDec_WriteAndAdvance, .writeRowToVDP_XOR, or NemDec_WriteAndAdvance_XOR
 ; ===========================================================================
 ; loc_156A:
-NemDec_WriteIter:
-	moveq	#0,d4
-	moveq	#8,d3
+.newRow:
+	moveq	#0,d4	; reset row
+	moveq	#8,d3	; reset nybble counter
 ; loc_156E:
-NemDec_WriteIter_Part2:
-	dbf	d0,loc_1560
-	bra.s	NemDecRun
+.writePixel_Loop:
+	dbf	d0,.writePixel
+	bra.s	.processCompressedData
 ; ===========================================================================
 
-loc_1574:
-	subq.w	#6,d6
+.inlineData:
+	subq.w	#6,d6	; 6 bits needed to signal inline data
 	cmpi.w	#9,d6
-	bhs.s	+
+	bhs.s	.skip
 	addq.w	#8,d6
 	asl.w	#8,d5
 	move.b	(a0)+,d5
-+
-	subq.w	#7,d6
+	
+.skip:
+	subq.w	#7,d6	; and 7 bits needed for the inline data itself
 	move.w	d5,d1
-	lsr.w	d6,d1
+	lsr.w	d6,d1	; shift so that low bit of the code is in bit position 0
 	move.w	d1,d0
-	andi.w	#$F,d1
-	andi.w	#$70,d0
+	andi.w	#$F,d1	; get palette index for pixel
+	andi.w	#$70,d0	; high nybble is repeat count for pixel
 	cmpi.w	#9,d6
-	bhs.s	loc_155E
+	bcc.s	.getRepeatCount
 	addq.w	#8,d6
 	asl.w	#8,d5
 	move.b	(a0)+,d5
-	bra.s	loc_155E
-; End of function NemDecRun
+	bra.s	.getRepeatCount
 
 ; ===========================================================================
 ; loc_15A0:
-NemDec_WriteAndStay:
-	move.l	d4,(a4)
+.writeRowToVDP:
+	move.l	d4,(a4)	; write 8-pixel row
 	subq.w	#1,a5
-	move.w	a5,d4
-	bne.s	NemDec_WriteIter
-	rts
+	move.w	a5,d4	; have all the 8-pixel rows been written?
+	bne.s	.newRow	; if not, branch
+	rts		; otherwise the decompression is finished
 ; ---------------------------------------------------------------------------
 ; loc_15AA:
-NemDec_WriteAndStay_XOR:
-	eor.l	d4,d2
-	move.l	d2,(a4)
+.writeRowToVDP_XOR:
+	eor.l	d4,d2	; XOR the previous row by the current row
+	move.l	d2,(a4)	; and write the result
 	subq.w	#1,a5
 	move.w	a5,d4
-	bne.s	NemDec_WriteIter
+	bne.s	.newRow
 	rts
 ; ===========================================================================
 ; loc_15B6:
-NemDec_WriteAndAdvance:
+.writeRowToRAM:
 	move.l	d4,(a4)+
 	subq.w	#1,a5
 	move.w	a5,d4
-	bne.s	NemDec_WriteIter
+	bne.s	.newRow
 	rts
 
-    if *-NemDec_WriteAndAdvance > NemDec_WriteAndStay_XOR-NemDec_WriteAndStay
-	fatal "the code in NemDec_WriteAndAdvance must not be larger than the code in NemDec_WriteAndStay"
+    if *-.writeRowToRAM > .writeRowToVDP_XOR-.writeRowToVDP
+	fatal "the code in .writeRowToRAM must not be larger than the code in .writeRowToVDP"
     endif
-    org NemDec_WriteAndAdvance+NemDec_WriteAndStay_XOR-NemDec_WriteAndStay
+    org .writeRowToRAM+.writeRowToVDP_XOR-.writeRowToVDP
 
 ; ---------------------------------------------------------------------------
 ; loc_15C0:
-NemDec_WriteAndAdvance_XOR:
+.writeRowToRAM_XOR:
 	eor.l	d4,d2
 	move.l	d2,(a4)+
 	subq.w	#1,a5
 	move.w	a5,d4
-	bne.s	NemDec_WriteIter
+	bne.s	.newRow
 	rts
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
-; Part of the Nemesis decompressor
+; ---------------------------------------------------------------------------
+; Part of the Nemesis decompressor, builds the code table (in RAM)
+; ---------------------------------------------------------------------------
 
 ; sub_15CC:
-NemDecPrepare:
-	move.b	(a0)+,d0
+NemDec_BuildCodeTable:
+	move.b	(a0)+,d0	; read first byte
 
--	cmpi.b	#$FF,d0
-	bne.s	+
-	rts
+.checkEnd:
+	cmpi.b	#$FF,d0	; has the end of the code table description been reached?
+	bne.s	.newPALIndex	; if not, branch
+	rts	; otherwise, this subroutine's work is done
 ; ---------------------------------------------------------------------------
-+	move.w	d0,d7
+.newPALIndex:
+	move.w	d0,d7
 
-loc_15D8:
-	move.b	(a0)+,d0
-	cmpi.b	#$80,d0
-	bhs.s	-
+.loop:
+	move.b	(a0)+,d0	; read next byte
+	cmpi.b	#$80,d0	; sign bit being set signifies a new palette index
+	bhs.s	.checkEnd	; a bmi could have been used instead of a compare and bhs
 
 	move.b	d0,d1
-	andi.w	#$F,d7
-	andi.w	#$70,d1
-	or.w	d1,d7
-	andi.w	#$F,d0
+	andi.w	#$F,d7	; get palette index
+	andi.w	#$70,d1	; get repeat count for palette index
+	or.w	d1,d7	; combine the two
+	andi.w	#$F,d0	; get the length of the code in bits
 	move.b	d0,d1
 	lsl.w	#8,d1
-	or.w	d1,d7
+	or.w	d1,d7	; combine with palette index and repeat count to form code table entry
 	moveq	#8,d1
-	sub.w	d0,d1
-	bne.s	loc_1606
-	move.b	(a0)+,d0
-	add.w	d0,d0
-	move.w	d7,(a1,d0.w)
-	bra.s	loc_15D8
+	sub.w	d0,d1	; is the code 8 bits long?
+	bne.s	.shortCode	; if not, a bit of extra processing is needed
+	move.b	(a0)+,d0	; get code
+	add.w	d0,d0	; each code gets a word-sized entry in the table
+	move.w	d7,(a1,d0.w)	; store the entry for the code
+	bra.s	.loop	; repeat
 ; ---------------------------------------------------------------------------
-loc_1606:
-	move.b	(a0)+,d0
-	lsl.w	d1,d0
-	add.w	d0,d0
+
+; the Nemesis decompressor uses prefix-free codes (no valid code is a prefix of a longer code)
+; e.g. if 10 is a valid 2-bit code, 110 is a valid 3-bit code but 100 isn't
+; also, when the actual compressed data is processed the high bit of each code is in bit position 7
+; so the code needs to be bit-shifted appropriately over here before being used as a code table index
+; additionally, the code needs multiple entries in the table because no masking is done during compressed data processing
+; so if 11000 is a valid code then all indices of the form 11000XXX need to have the same entry
+.shortCode:
+	move.b	(a0)+,d0	; get code
+	lsl.w	d1,d0	; shift so that high bit is in bit position 7
+	add.w	d0,d0	; get index into code table
 	moveq	#1,d5
 	lsl.w	d1,d5
-	subq.w	#1,d5
+	subq.w	#1,d5	; d5 = 2^d1 - 1
 
--	move.w	d7,(a1,d0.w)
-	addq.w	#2,d0
-	dbf	d5,-
+.shortCode_Loop:
+	move.w	d7,(a1,d0.w)	; store entry
+	addq.w	#2,d0	; increment index
+	dbf	d5,.shortCode_Loop	; repeat for required number of entries
 
-	bra.s	loc_15D8
-; End of function NemDecPrepare
+	bra.s	.loop
+; End of function .buildCodeTable
 
 ; ---------------------------------------------------------------------------
 ; END OF NEMESIS DECOMPRESSOR
@@ -1838,27 +1873,32 @@ loc_1606:
 ;    _________DO NOT PUT MORE THAN 16 LOAD REQUESTS IN A LIST!__________
 ;         (or if you change the size of Plc_Buffer, the limit becomes (Plc_Buffer_Only_End-Plc_Buffer)/6)
 
-; sub_161E: PLCLoad:
+; sub_161E: PLCLoad: AddPLC:
 LoadPLC:
 	movem.l	a1-a2,-(sp)
 	lea	(ArtLoadCues).l,a1
 	add.w	d0,d0
 	move.w	(a1,d0.w),d0
-	lea	(a1,d0.w),a1
-	lea	(Plc_Buffer).w,a2
+	lea	(a1,d0.w),a1		; jump to relevant PLC
+	lea	(Plc_Buffer).w,a2	; PLC buffer space
 
--	tst.l	(a2)
-	beq.s	+ ; if it's zero, exit this loop
-	addq.w	#6,a2
-	bra.s	-
-+
-	move.w	(a1)+,d0
-	bmi.s	+ ; if it's negative, skip the next loop
+.findFreeSlot:
+	tst.l	(a2)				; is space available in RAM?
+	beq.s	.getPieceCount	; if yes, branch
+	addq.w	#6,a2				; if not, try next space
+	bra.s	.findFreeSlot
+; ===========================================================================
+	
+.getPieceCount:
+	move.w	(a1)+,d0	; get length of PLC
+	bmi.s	.return ; if it's negative, skip the next loop
 
--	move.l	(a1)+,(a2)+
-	move.w	(a1)+,(a2)+
-	dbf	d0,-
-+
+.queuePieces:
+	move.l	(a1)+,(a2)+
+	move.w	(a1)+,(a2)+	; copy PLC to RAM
+	dbf	d0,.queuePieces	; repeat for length of PLC
+	
+.return:
 	movem.l	(sp)+,a1-a2 ; a1=object
 	rts
 ; End of function LoadPLC
@@ -1875,22 +1915,25 @@ LoadPLC:
 ;	  16 load requests are copied into the buffer.
 ;	  _________DO NOT PUT MORE THAN 16 LOAD REQUESTS IN A LIST!__________
 ;         (or if you change the size of Plc_Buffer, the limit becomes (Plc_Buffer_Only_End-Plc_Buffer)/6)
-; sub_1650:
+
+; sub_1650: NewPLC:
 LoadPLC2:
-	movem.l	a1-a2,-(sp)
+	movem.l	a1-a2,-(sp)	; This differs from LoadPLC in that it overrides any PLCs already in the queue
 	lea	(ArtLoadCues).l,a1
 	add.w	d0,d0
 	move.w	(a1,d0.w),d0
-	lea	(a1,d0.w),a1
-	bsr.s	ClearPLC
+	lea	(a1,d0.w),a1		; jump to relevant PLC
+	bsr.s	ClearPLC		; erase any data in PLC buffer space
 	lea	(Plc_Buffer).w,a2
-	move.w	(a1)+,d0
-	bmi.s	+ ; if it's negative, skip the next loop
+	move.w	(a1)+,d0		; get length of PLC
+	bmi.s	.return	; if it's negative, skip the next loop
 
--	move.l	(a1)+,(a2)+
-	move.w	(a1)+,(a2)+
-	dbf	d0,-
-+
+.queuePieces:
+	move.l	(a1)+,(a2)+
+	move.w	(a1)+,(a2)+	; copy PLC to RAM
+	dbf	d0,.queuePieces	; repeat for length of PLC
+	
+.return:
 	movem.l	(sp)+,a1-a2
 	rts
 ; End of function LoadPLC2
@@ -1898,14 +1941,20 @@ LoadPLC2:
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
 
+; ---------------------------------------------------------------------------
+; Subroutine to	clear the pattern load cues
+; ---------------------------------------------------------------------------
+
 ; Clear the pattern load queue ($FFF680 - $FFF700)
 
 ClearPLC:
-	lea	(Plc_Buffer).w,a2
+	lea	(Plc_Buffer).w,a2 ; PLC buffer space in RAM
 
 	moveq	#bytesToLcnt(Plc_Buffer_End-Plc_Buffer),d0
--	clr.l	(a2)+
-	dbf	d0,-
+	
+.loop:
+	clr.l	(a2)+
+	dbf	d0,.loop
 
 	rts
 ; End of function ClearPLC
@@ -1919,20 +1968,21 @@ ClearPLC:
 ; sub_168A:
 RunPLC_RAM:
 	tst.l	(Plc_Buffer).w
-	beq.s	++	; rts
+	beq.s	.return	; return if the queue is empty
 	tst.w	(Plc_Buffer_Reg18).w
-	bne.s	++	; rts
+	bne.s	.return	; return if processing of a previous piece is still going on
 	movea.l	(Plc_Buffer).w,a0
-	lea_	NemDec_WriteAndStay,a3
+	lea_	NemDecMain.writeRowToVDP,a3
 	nop
 	lea	(Decomp_Buffer).w,a1
 	move.w	(a0)+,d2
-	bpl.s	+
-	adda.w	#NemDec_WriteAndStay_XOR-NemDec_WriteAndStay,a3
-+
+	bpl.s	.skip
+	adda.w	#NemDecMain.writeRowToVDP_XOR-NemDecMain.writeRowToVDP,a3
+
+.skip:
 	andi.w	#$7FFF,d2
 	move.w	d2,(Plc_Buffer_Reg18).w
-	bsr.w	NemDecPrepare
+	bsr.w	NemDec_BuildCodeTable
 	move.b	(a0)+,d5
 	asl.w	#8,d5
 	move.b	(a0)+,d5
@@ -1945,7 +1995,8 @@ RunPLC_RAM:
 	move.l	d0,(Plc_Buffer_RegC).w
 	move.l	d5,(Plc_Buffer_Reg10).w
 	move.l	d6,(Plc_Buffer_Reg14).w
-+
+
+.return:
 	rts
 ; End of function RunPLC_RAM
 
@@ -1957,10 +2008,10 @@ RunPLC_RAM:
 ProcessDPLC:
 	tst.w	(Plc_Buffer_Reg18).w
 	beq.w	+	; rts
-	move.w	#6,(Plc_Buffer_Reg1A).w
+	move.w	#6,(Plc_Buffer_Reg1A).w	; decompress 6 patterns per frame
 	moveq	#0,d0
 	move.w	(Plc_Buffer+4).w,d0
-	addi.w	#$C0,(Plc_Buffer+4).w
+	addi.w	#6*$20,(Plc_Buffer+4).w	; increment by 6 patterns' worth of data
 	bra.s	ProcessDPLC_Main
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
@@ -1993,12 +2044,13 @@ ProcessDPLC_Main:
 	move.l	(Plc_Buffer_Reg14).w,d6
 	lea	(Decomp_Buffer).w,a1
 
--	movea.w	#8,a5
-	bsr.w	NemDec_WriteIter
+.loop:
+	movea.w	#8,a5
+	bsr.w	NemDecMain.newRow
 	subq.w	#1,(Plc_Buffer_Reg18).w
 	beq.s	ProcessDPLC_Pop
 	subq.w	#1,(Plc_Buffer_Reg1A).w
-	bne.s	-
+	bne.s	.loop
 
 	move.l	a0,(Plc_Buffer).w
 	move.l	a3,(Plc_Buffer_Reg0).w
@@ -2012,6 +2064,10 @@ ProcessDPLC_Main:
 
 ; ===========================================================================
 ; pop one request off the buffer so that the next one can be filled
+; this routine is idiotic because:
+; a) it doesn't copy the VRAM location for the last entry in the queue
+; b) it doesn't actually mark the last slot in the queue as clear
+; so basically don't store an entry in the last slot unless you want the game to screw up to high heaven
 
 ; loc_177A:
 ProcessDPLC_Pop:
@@ -2038,16 +2094,18 @@ RunPLC_ROM:
 	lea	(a1,d0.w),a1
 
 	move.w	(a1)+,d1
--	movea.l	(a1)+,a0
+	
+.decompPieces:
+	movea.l	(a1)+,a0	; get source address
 	moveq	#0,d0
-	move.w	(a1)+,d0
+	move.w	(a1)+,d0	; get destination VRAM address
 	lsl.l	#2,d0
 	lsr.w	#2,d0
 	ori.w	#vdpComm($0000,VRAM,WRITE)>>16,d0
-	swap	d0
+	swap	d0	; d0 = VDP command to write to destination
 	move.l	d0,(VDP_control_port).l
 	bsr.w	NemDec
-	dbf	d1,-
+	dbf	d1,.decompPieces
 
 	rts
 ; End of function RunPLC_ROM
@@ -2071,34 +2129,34 @@ EniDec:
 	movea.w	d0,a3		; store starting art tile
 	move.b	(a0)+,d0
 	ext.w	d0
-	movea.w	d0,a5		; store first byte, extended to word
-	move.b	(a0)+,d4	; store second byte
-	lsl.b	#3,d4		; multiply by 8
-	movea.w	(a0)+,a2	; store third and fourth byte
-	adda.w	a3,a2		; add starting art tile
-	movea.w	(a0)+,a4	; store fifth and sixth byte
-	adda.w	a3,a4		; add starting art tile
-	move.b	(a0)+,d5	; store seventh byte
-	asl.w	#8,d5		; shift up by a byte
-	move.b	(a0)+,d5	; store eighth byte in lower register byte
-	moveq	#16,d6		; 16 bits = 2 bytes
+	movea.w	d0,a5		; store number of bits in inline copy value
+	move.b	(a0)+,d4	
+	lsl.b	#3,d4		; store PCCVH flags bitfield
+	movea.w	(a0)+,a2	
+	adda.w	a3,a2		; store incremental copy word
+	movea.w	(a0)+,a4	
+	adda.w	a3,a4		
+	move.b	(a0)+,d5	
+	asl.w	#8,d5		
+	move.b	(a0)+,d5	; get first word in format list
+	moveq	#16,d6		; initial shift value
 
 EniDec_Loop:
-	moveq	#7,d0		; process 7 bits at a time
+	moveq	#7,d0		; assume a format list entry is 7 bits
 	move.w	d6,d7
 	sub.w	d0,d7
 	move.w	d5,d1
 	lsr.w	d7,d1
-	andi.w	#$7F,d1		; keep only lower 7 bits
-	move.w	d1,d2
-	cmpi.w	#$40,d1		; is bit 6 set?
+	andi.w	#$7F,d1		; get format list entry
+	move.w	d1,d2		; and copy it
+	cmpi.w	#$40,d1		; is the high bit of the entry set?
 	bhs.s	+		; if it is, branch
-	moveq	#6,d0		; if not, process 6 bits instead of 7
+	moveq	#6,d0		; if it isn't, the entry is actually 6 bits
 	lsr.w	#1,d2		; bitfield now becomes TTSSSS instead of TTTSSSS
 +
 	bsr.w	EniDec_ChkGetNextByte
-	andi.w	#$F,d2	; keep only lower nybble
-	lsr.w	#4,d1	; store upper nybble (max value = 7)
+	andi.w	#$F,d2	; get repeat count
+	lsr.w	#4,d1	
 	add.w	d1,d1
 	jmp	EniDec_JmpTable(pc,d1.w)
 ; End of function EniDec
@@ -2106,14 +2164,14 @@ EniDec_Loop:
 ; ===========================================================================
 
 EniDec_Sub0:
-	move.w	a2,(a1)+	; write to destination
-	addq.w	#1,a2		; increment
+	move.w	a2,(a1)+	; copy incremental copy word
+	addq.w	#1,a2		; increment it
 	dbf	d2,EniDec_Sub0	; repeat
 	bra.s	EniDec_Loop
 ; ===========================================================================
 
 EniDec_Sub4:
-	move.w	a4,(a1)+	; write to destination
+	move.w	a4,(a1)+	; copy literal copy word
 	dbf	d2,EniDec_Sub4	; repeat
 	bra.s	EniDec_Loop
 ; ===========================================================================
@@ -2121,8 +2179,9 @@ EniDec_Sub4:
 EniDec_Sub8:
 	bsr.w	EniDec_GetInlineCopyVal
 
--	move.w	d1,(a1)+
-	dbf	d2,-
+.loop:
+	move.w	d1,(a1)+	; copy inline value
+	dbf	d2,.loop	; repeat
 
 	bra.s	EniDec_Loop
 ; ===========================================================================
@@ -2130,9 +2189,10 @@ EniDec_Sub8:
 EniDec_SubA:
 	bsr.w	EniDec_GetInlineCopyVal
 
--	move.w	d1,(a1)+
-	addq.w	#1,d1
-	dbf	d2,-
+.loop:
+	move.w	d1,(a1)+	; copy inline value
+	addq.w	#1,d1	; increment
+	dbf	d2,.loop	; repeat
 
 	bra.s	EniDec_Loop
 ; ===========================================================================
@@ -2140,9 +2200,10 @@ EniDec_SubA:
 EniDec_SubC:
 	bsr.w	EniDec_GetInlineCopyVal
 
--	move.w	d1,(a1)+
-	subq.w	#1,d1
-	dbf	d2,-
+.loop:
+	move.w	d1,(a1)+	; copy inline value
+	subq.w	#1,d1	; decrement
+	dbf	d2,.loop	; repeat
 
 	bra.s	EniDec_Loop
 ; ===========================================================================
@@ -2151,9 +2212,10 @@ EniDec_SubE:
 	cmpi.w	#$F,d2
 	beq.s	EniDec_End
 
--	bsr.w	EniDec_GetInlineCopyVal
-	move.w	d1,(a1)+
-	dbf	d2,-
+.loop:
+	bsr.w	EniDec_GetInlineCopyVal	; fetch new inline value
+	move.w	d1,(a1)+	; copy it
+	dbf	d2,.loop	; and repeat
 
 	bra.s	EniDec_Loop
 ; ===========================================================================
@@ -2170,16 +2232,17 @@ EniDec_JmpTable:
 ; ===========================================================================
 
 EniDec_End:
-	subq.w	#1,a0
+	subq.w	#1,a0	; go back by one byte
 	cmpi.w	#16,d6		; were we going to start on a completely new byte?
 	bne.s	+		; if not, branch
-	subq.w	#1,a0
+	subq.w	#1,a0	; go back by another byte
 +
 	move.w	a0,d0
 	lsr.w	#1,d0		; are we on an odd byte?
-	bcc.s	+		; if not, branch
+	bcc.s	.return		; if not, branch
 	addq.w	#1,a0		; ensure we're on an even byte
-+
+	
+.return:
 	movem.l	(sp)+,d0-d7/a1-a5
 	rts
 
@@ -2187,38 +2250,38 @@ EniDec_End:
 
 
 EniDec_GetInlineCopyVal:
-	move.w	a3,d3		; store starting art tile
-	move.b	d4,d1
-	add.b	d1,d1
-	bcc.s	+		; if d4 was < $80
+	move.w	a3,d3	; store starting art tile
+	move.b	d4,d1	; copy PCCVH bitfield
+	add.b	d1,d1	; is the priority bit set?
+	bcc.s	+	; if not, branch
 	subq.w	#1,d6		; get next bit number
-	btst	d6,d5		; is the bit set?
+	btst	d6,d5		; is the priority bit set in the inline render flags?
 	beq.s	+		; if not, branch
-	ori.w	#high_priority,d3	; set high priority bit
+	ori.w	#high_priority,d3	; otherwise set priority bit in art tile
 +
-	add.b	d1,d1
-	bcc.s	+		; if d4 was < $40
+	add.b	d1,d1	; is the high palette line bit set?
+	bcc.s	+		; if not, branch
 	subq.w	#1,d6		; get next bit number
 	btst	d6,d5
 	beq.s	+
 	addi.w	#palette_line_2,d3	; set second palette line bit
 +
-	add.b	d1,d1
-	bcc.s	+		; if d4 was < $20
+	add.b	d1,d1	; is the low palette line bit set?
+	bcc.s	+	; if not, branch
 	subq.w	#1,d6		; get next bit number
 	btst	d6,d5
 	beq.s	+
 	addi.w	#palette_line_1,d3	; set first palette line bit
 +
-	add.b	d1,d1
-	bcc.s	+		; if d4 was < $10
+	add.b	d1,d1	; is the vertical flip flag set?
+	bcc.s	+	; if not, branch
 	subq.w	#1,d6		; get next bit number
 	btst	d6,d5
 	beq.s	+
 	ori.w	#flip_y,d3	; set Y-flip bit
 +
-	add.b	d1,d1
-	bcc.s	+		; if d4 was < 8
+	add.b	d1,d1	; is the horizontal flip flag set?
+	bcc.s	+	; if not, branch
 	subq.w	#1,d6
 	btst	d6,d5
 	beq.s	+
@@ -2227,18 +2290,19 @@ EniDec_GetInlineCopyVal:
 	move.w	d5,d1
 	move.w	d6,d7		; get remaining bits
 	sub.w	a5,d7		; subtract minimum bit number
-	bcc.s	+		; if we're beyond that, branch
+	bcc.s	.enoughBits		; if we're beyond that, branch
 	move.w	d7,d6
 	addi.w	#16,d6		; 16 bits = 2 bytes
 	neg.w	d7		; calculate bit deficit
 	lsl.w	d7,d1		; make space for this many bits
 	move.b	(a0),d5		; get next byte
-	rol.b	d7,d5		; make the upper X bits the lower X bits
+	rol.b	d7,d5		; and rotate the required bits into the lowest positions
 	add.w	d7,d7
 	and.w	EniDec_AndVals-2(pc,d7.w),d5	; only keep X lower bits
-	add.w	d5,d1		; compensate for the bit deficit
--
-	move.w	a5,d0
+	add.w	d5,d1	; compensate for the bit deficit by combining the upper bits with the lower bits
+	
+.maskValue:
+	move.w	a5,d0	; get length in bits of inline copy value
 	add.w	d0,d0
 	and.w	EniDec_AndVals-2(pc,d0.w),d1	; only keep as many bits as required
 	add.w	d3,d1		; add starting art tile
@@ -2247,9 +2311,9 @@ EniDec_GetInlineCopyVal:
 	move.b	(a0)+,d5	; store next byte in lower register byte
 	rts
 ; ===========================================================================
-+
-	beq.s	+		; if the exact number of bits are leftover, branch
-	lsr.w	d7,d1		; remove unneeded bits
+.enoughBits:
+	beq.s	.justEnough		; if the exact number of bits are leftover, branch
+	lsr.w	d7,d1		; remove unneeded bits to get inline copy value
 	move.w	a5,d0
 	add.w	d0,d0
 	and.w	EniDec_AndVals-2(pc,d0.w),d1	; only keep as many bits as required
@@ -2257,9 +2321,9 @@ EniDec_GetInlineCopyVal:
 	move.w	a5,d0		; store number of bits used up by inline copy
 	bra.s	EniDec_ChkGetNextByte	; move onto next byte
 ; ===========================================================================
-+
-	moveq	#16,d6	; 16 bits = 2 bytes
-	bra.s	-
+.justEnough:
+	moveq	#16,d6	; reset shift value
+	bra.s	.maskValue
 ; End of function EniDec_GetInlineCopyVal
 
 ; ===========================================================================
@@ -2269,16 +2333,21 @@ EniDec_AndVals:
 	dc.w   $1F,  $3F,  $7F,  $FF
 	dc.w  $1FF, $3FF, $7FF, $FFF
 	dc.w $1FFF,$3FFF,$7FFF,$FFFF
+	
+; ---------------------------------------------------------------------------
+; Part of the Enigma decompressor, fetches the next byte if needed
+; ---------------------------------------------------------------------------
 ; ===========================================================================
 
 EniDec_ChkGetNextByte:
-	sub.w	d0,d6
-	cmpi.w	#9,d6
-	bhs.s	+	; rts
+	sub.w	d0,d6	; subtract length of current entry from shift value so that next entry is read next time around
+	cmpi.w	#9,d6	; does a new byte need to be read?
+	bhs.s	.return	; if not, branch
 	addq.w	#8,d6	; 8 bits = 1 byte
 	asl.w	#8,d5	; shift up by a byte
 	move.b	(a0)+,d5	; store next byte in lower register byte
-+
+
+.return:
 	rts
 
 ; ||||||||||||||| S U B R O U T I N E |||||||||||||||||||||||||||||||||||||||
@@ -2296,86 +2365,94 @@ EniDec_ChkGetNextByte:
 ; ---------------------------------------------------------------------------
 ; KozDec_193A:
 KosDec:
-	subq.l	#2,sp
+	subq.l	#2,sp	; make space for two bytes on the stack
+	move.b	(a0)+,1(sp)
+	move.b	(a0)+,(sp)
+	move.w	(sp),d5	; copy first description field
+	moveq	#$F,d4	; 16 bits in a byte
+
+.loop:
+	lsr.w	#1,d5	; bit which is shifted out goes into C flag
+	move	sr,d6
+	dbf	d4,.checkBit
+	move.b	(a0)+,1(sp)
+	move.b	(a0)+,(sp)
+	move.w	(sp),d5	; get next description field if needed
+	moveq	#$F,d4	; reset bit counter
+
+.checkBit:
+	move	d6,ccr	; was the bit set?
+	bcc.s	.match	; if not, branch (C flag clear means bit was clear)
+	move.b	(a0)+,(a1)+	; otherwise, copy byte as-is
+	bra.s	.loop
+; ---------------------------------------------------------------------------
+
+.match:
+	moveq	#0,d3
+	lsr.w	#1,d5	; get next bit
+	move	sr,d6
+	dbf	d4,.checkBit2
 	move.b	(a0)+,1(sp)
 	move.b	(a0)+,(sp)
 	move.w	(sp),d5
 	moveq	#$F,d4
 
--
-	lsr.w	#1,d5
-	move	sr,d6
-	dbf	d4,+
+.checkBit2:
+	move	d6,ccr	; was the bit set?
+	bcs.s	.fullMatch	; if it was, branch
+	lsr.w	#1,d5	; bit which is shifted out goes into X flag
+	dbf	d4,.skip
 	move.b	(a0)+,1(sp)
 	move.b	(a0)+,(sp)
 	move.w	(sp),d5
 	moveq	#$F,d4
-+
-	move	d6,ccr
-	bcc.s	+
-	move.b	(a0)+,(a1)+
-	bra.s	-
-; ---------------------------------------------------------------------------
-+
-	moveq	#0,d3
+
+.skip:
+	roxl.w	#1,d3	; get high repeat count bit (shift X flag in)
 	lsr.w	#1,d5
-	move	sr,d6
-	dbf	d4,+
+	dbf	d4,.skip2
 	move.b	(a0)+,1(sp)
 	move.b	(a0)+,(sp)
 	move.w	(sp),d5
 	moveq	#$F,d4
-+
-	move	d6,ccr
-	bcs.s	+++
-	lsr.w	#1,d5
-	dbf	d4,+
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-+
-	roxl.w	#1,d3
-	lsr.w	#1,d5
-	dbf	d4,+
-	move.b	(a0)+,1(sp)
-	move.b	(a0)+,(sp)
-	move.w	(sp),d5
-	moveq	#$F,d4
-+
-	roxl.w	#1,d3
-	addq.w	#1,d3
+
+.skip2:
+	roxl.w	#1,d3	; get low repeat count bit
+	addq.w	#1,d3	; increment repeat count
 	moveq	#-1,d2
-	move.b	(a0)+,d2
-	bra.s	++
+	move.b	(a0)+,d2	; calculate offset
+	bra.s	.matchLoop
 ; ---------------------------------------------------------------------------
-+
-	move.b	(a0)+,d0
-	move.b	(a0)+,d1
+.fullMatch:
+	move.b	(a0)+,d0	; get first byte
+	move.b	(a0)+,d1	; get second byte
 	moveq	#-1,d2
 	move.b	d1,d2
 	lsl.w	#5,d2
-	move.b	d0,d2
-	andi.w	#7,d1
-	beq.s	++
-	move.b	d1,d3
-	addq.w	#1,d3
-/
+	move.b	d0,d2	; calculate offset
+	andi.w	#7,d1	; does a third byte need to be read?
+	beq.s	.fullMatch2	; if it does, branch
+	move.b	d1,d3	; copy repeat count
+	addq.w	#1,d3	; and increment it
+
+.matchLoop:
 	move.b	(a1,d2.w),d0
-	move.b	d0,(a1)+
-	dbf	d3,-
-	bra.s	--
+	move.b	d0,(a1)+	; copy appropriate byte
+	dbf	d3,.matchLoop	; and repeat the copying
+	bra.s	.loop
 ; ---------------------------------------------------------------------------
-+
+
+.fullMatch2:
 	move.b	(a0)+,d1
-	beq.s	+
+	beq.s	.return	; 0 indicates end of compressed data
 	cmpi.b	#1,d1
-	beq.w	--
-	move.b	d1,d3
-	bra.s	-
+	beq.w	.loop	; 1 indicates a new description needs to be read
+	move.b	d1,d3	; otherwise, copy repeat count
+	bra.s	.matchLoop
 ; ---------------------------------------------------------------------------
-+
-	addq.l	#2,sp
+
+.return:
+	addq.l	#2,sp	; restore stack pointer to original state
 	rts
 ; End of function KosDec
 
@@ -2801,8 +2878,8 @@ CyclingPal_WFZ2:
 
 ; sub_213E:
 PalCycle_SuperSonic:
-	move.b	(Super_Sonic_palette).w,d0
-	beq.s	++	; rts	; return, if Sonic isn't super
+	move.b	(Super_Sonic_palette).w,d0	; 0 = off | 1 = fading | -1 = fading done
+	beq.s	.return	; return, if Sonic isn't super
 	bmi.w	PalCycle_SuperSonic_normal	; branch, if fade-in is done
 	subq.b	#1,d0
 	bne.s	PalCycle_SuperSonic_revert	; branch for values greater than 1
@@ -2810,7 +2887,7 @@ PalCycle_SuperSonic:
 	; fade from Sonic's to Super Sonic's palette
 	; run frame timer
 	subq.b	#1,(Palette_timer).w
-	bpl.s	++	; rts
+	bpl.s	.return
 	move.b	#3,(Palette_timer).w
 
 	; increment palette frame and update Sonic's palette
@@ -2818,22 +2895,25 @@ PalCycle_SuperSonic:
 	move.w	(Palette_frame).w,d0
 	addq.w	#8,(Palette_frame).w	; 1 palette entry = 1 word, Sonic uses 4 shades of blue
 	cmpi.w	#$30,(Palette_frame).w	; has palette cycle reached the 6th frame?
-	blo.s	+			; if not, branch
+	blo.s	.sonicApply			; if not, branch
 	move.b	#-1,(Super_Sonic_palette).w	; mark fade-in as done
 	move.b	#0,(MainCharacter+obj_control).w	; restore Sonic's movement
-+
+	
+.sonicApply:
 	lea	(Normal_palette+4).w,a1
 	move.l	(a0,d0.w),(a1)+
 	move.l	4(a0,d0.w),(a1)
 	; note: the fade in for Sonic's underwater palette is missing.
 	; branch to the code below (*) to fix this
-/	rts
+	
+.return:
+	rts
 ; ===========================================================================
 ; loc_2188:
 PalCycle_SuperSonic_revert:	; runs the fade in transition backwards
 	; run frame timer
 	subq.b	#1,(Palette_timer).w
-	bpl.s	-	; rts
+	bpl.s	PalCycle_SuperSonic.return	; rts
 	move.b	#3,(Palette_timer).w
 
 	; decrement palette frame and update Sonic's palette
@@ -2852,7 +2932,7 @@ PalCycle_SuperSonic_revert:	; runs the fade in transition backwards
 	cmpi.b	#chemical_plant_zone,(Current_Zone).w
 	beq.s	+
 	cmpi.b	#aquatic_ruin_zone,(Current_Zone).w
-	bne.s	-	; rts
+	bne.s	PalCycle_SuperSonic.return
 	lea	(CyclingPal_ARZUWTransformation).l,a0
 +	lea	(Underwater_palette+4).w,a1
 	move.l	(a0,d0.w),(a1)+
@@ -2863,7 +2943,7 @@ PalCycle_SuperSonic_revert:	; runs the fade in transition backwards
 PalCycle_SuperSonic_normal:
 	; run frame timer
 	subq.b	#1,(Palette_timer).w
-	bpl.s	-	; rts
+	bpl.s	PalCycle_SuperSonic.return
 	move.b	#7,(Palette_timer).w
 
 	; increment palette frame and update Sonic's palette
@@ -2882,7 +2962,7 @@ PalCycle_SuperSonic_normal:
 	cmpi.b	#chemical_plant_zone,(Current_Zone).w
 	beq.s	+
 	cmpi.b	#aquatic_ruin_zone,(Current_Zone).w
-	bne.w	-	; rts
+	bne.w	PalCycle_SuperSonic.return	; rts
 	lea	(CyclingPal_ARZUWTransformation).l,a0
 +	lea	(Underwater_palette+4).w,a1
 	move.l	(a0,d0.w),(a1)+
@@ -3220,12 +3300,12 @@ Pal_FadeToWhite:
 	move.w	#$3F,(Palette_fade_range).w
 
 	move.w	#$15,d4
-.nextframe:
+.nextFrame:
 	move.b	#VintID_Fade,(Vint_routine).w
 	bsr.w	WaitForVint
 	bsr.s	.UpdateAllColours
 	bsr.w	RunPLC_RAM
-	dbf	d4,.nextframe
+	dbf	d4,.nextFrame
 
 	rts
 ; End of function Pal_FadeToWhite
@@ -3606,7 +3686,7 @@ WaitForVint:
 	move	#$2300,sr
 
 -	tst.b	(Vint_routine).w
-	bne.s	-
+	bne.s	-	; wait until V-int's run
 	rts
 ; End of function WaitForVint
 
@@ -3622,12 +3702,13 @@ WaitForVint:
 ; sub_3390:
 RandomNumber:
 	move.l	(RNG_seed).w,d1
-	bne.s	+
+	bne.s	.noReset
 	move.l	#$2A6D365A,d1 ; if the RNG is 0, reset it to this crazy number
 
 	; set the high word of d0 to be the high word of the RNG
 	; and multiply the RNG by 41
-+	move.l	d1,d0
+.noReset:
+	move.l	d1,d0
 	asl.l	#2,d1
 	add.l	d0,d1
 	asl.l	#3,d1
@@ -3659,7 +3740,7 @@ RandomNumber:
 CalcSine:
 	andi.w	#$FF,d0
 	add.w	d0,d0
-	addi.w	#$80,d0
+	addi.w	#$80,d0	; $40 = 90 degrees, sin(x+90) = cos(x)
 	move.w	Sine_Data(pc,d0.w),d1 ; cos
 	subi.w	#$80,d0
 	move.w	Sine_Data(pc,d0.w),d0 ; sin
@@ -3693,8 +3774,9 @@ CalcAngle:
 
 	absw.w	d3	; calculate absolute value of x
 	absw.w	d4	; calculate absolute value of y
+	
 	cmp.w	d3,d4
-	bhs.w	+
+	bhs.w	+	; if |y| >= |x|
 	lsl.l	#8,d4
 	divu.w	d3,d4
 	moveq	#0,d0
@@ -3704,24 +3786,24 @@ CalcAngle:
 	lsl.l	#8,d3
 	divu.w	d4,d3
 	moveq	#$40,d0
-	sub.b	Angle_Data(pc,d3.w),d0
+	sub.b	Angle_Data(pc,d3.w),d0	; arctan(y/x) = 90 - arctan(x/y)
 +
 	tst.w	d1
 	bpl.w	+
 	neg.w	d0
-	addi.w	#$80,d0
+	addi.w	#$80,d0	; place angle in appropriate quadrant
 +
 	tst.w	d2
 	bpl.w	+
 	neg.w	d0
-	addi.w	#$100,d0
+	addi.w	#$100,d0	; place angle in appropriate quadrant
 +
 	movem.l	(sp)+,d3-d4
 	rts
 ; ===========================================================================
 ; loc_36AA:
 CalcAngle_Zero:
-	move.w	#$40,d0
+	move.w	#$40,d0	; angle = 90 degrees
 	movem.l	(sp)+,d3-d4
 	rts
 ; End of function CalcAngle
@@ -3880,18 +3962,18 @@ TitleScreen:
 	move.b	#MusID_Stop,d0
 	bsr.w	PlayMusic
 	bsr.w	ClearPLC
-	bsr.w	Pal_FadeToBlack
+	bsr.w	Pal_FadeToBlack		; Fade out
 	move	#$2700,sr
 	lea	(VDP_control_port).l,a6
-	move.w	#$8004,(a6)		; H-INT disabled
+	move.w	#$8004,(a6)			; Command $8004 - Disable HInt, HV Counter
 	move.w	#$8200|(VRAM_TtlScr_Plane_A_Name_Table/$400),(a6)	; PNT A base: $C000
 	move.w	#$8400|(VRAM_TtlScr_Plane_B_Name_Table/$2000),(a6)	; PNT B base: $E000
-	move.w	#$9001,(a6)		; Scroll table size: 64x32
+	move.w	#$9001,(a6)			; Command $9001 - 64x32 cell nametable area
 	move.w	#$9200,(a6)		; Disable window
-	move.w	#$8B03,(a6)		; EXT-INT disabled, V scroll by screen, H scroll by line
+	move.w	#$8B03,(a6)		; Command $8B03 - Vscroll full, HScroll line-based
 	move.w	#$8720,(a6)		; Background palette/color: 2/0
 	clr.b	(Water_fullscreen_flag).w
-	move.w	#$8C81,(a6)		; H res 40 cells, no interlace, S/H disabled
+	move.w	#$8C81,(a6)			; Command $8C81 - 40cell screen size, no interlacing, no s/h
 	bsr.w	ClearScreen
 
 	clearRAM Sprite_Table_Input,Sprite_Table_Input_End ; fill $AC00-$AFFF with $0
@@ -26622,11 +26704,11 @@ loc_155C6:
 	moveq	#7,d5
 	move.l	#make_block_tile_pair(ArtTile_ArtNem_TitleCard+$5C,0,0,1,1),d6
 	tst.w	(Two_player_mode).w
-	beq.s	loc_155EA
+	beq.s	+
 	moveq	#3,d5
 	move.l	#make_block_tile_pair_2p(ArtTile_ArtNem_TitleCard+$5C,0,0,1,1),d6
 
-loc_155EA:
++
 	lea	(TitleCard_Bottom+titlecard_vram_dest).w,a0
 	moveq	#1,d7	; Once for P1, once for P2 (if in 2p mode)
 
@@ -26641,9 +26723,9 @@ loc_155FE:
 	move.l	d0,VDP_control_port-VDP_data_port(a6)
 	move.w	d1,d3
 
-loc_15604:
+-
 	move.l	d6,(a6)
-	dbf	d3,loc_15604
+	dbf	d3,-
 	addi.l	#vdpCommDelta($0080),d0
 	dbf	d4,loc_155FE
 
@@ -27313,7 +27395,7 @@ Obj3C_Init:
 	move.b	#$10,width_pixels(a0)
 	move.b	#4,priority(a0)
 	move.b	subtype(a0),mapping_frame(a0)
-; loc_15D8A:
+; NemBCT_LoopA:
 Obj3C_Main:
 	move.w	(MainCharacter+x_vel).w,objoff_30(a0)
 	move.w	#$1B,d1
